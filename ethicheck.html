@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>ShelfCheck — scan before you buy</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<style>
+  :root{
+    --ink:#12161b;
+    --panel:#1c2229;
+    --panel-2:#242c35;
+    --line:#39434e;
+    --text:#e8e6df;
+    --muted:#9aa4ad;
+    --paper:#faf7f0;
+    --paper-ink:#26221a;
+    --red:#e5484d;
+    --green:#2fa36b;
+    --amber:#f0a12e;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--ink);color:var(--text);font-family:var(--sans);-webkit-font-smoothing:antialiased}
+  body{max-width:480px;margin:0 auto;padding:16px 16px 48px}
+
+  header{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px}
+  header h1{font-family:var(--mono);font-size:1.15rem;letter-spacing:.06em;font-weight:700}
+  header h1 span{color:var(--green)}
+  header .tag{font-size:.7rem;color:var(--muted);font-family:var(--mono)}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+  .card h2{font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin-bottom:10px;font-family:var(--mono)}
+
+  /* filter chips */
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{border:1px solid var(--line);background:var(--panel-2);color:var(--text);border-radius:999px;padding:8px 14px;font-size:.85rem;cursor:pointer;user-select:none;transition:background .15s,border-color .15s}
+  .chip[aria-pressed="true"]{background:#173327;border-color:var(--green);color:#c9f2dd}
+  .chip:focus-visible{outline:2px solid var(--green);outline-offset:2px}
+  .hint{font-size:.72rem;color:var(--muted);margin-top:10px;line-height:1.45}
+
+  /* editable lists */
+  .listrow{display:flex;gap:8px;margin-top:10px}
+  .listrow input{flex:1;background:var(--ink);border:1px solid var(--line);border-radius:8px;color:var(--text);padding:9px 11px;font-size:.9rem}
+  .listrow input:focus-visible{outline:2px solid var(--green);outline-offset:1px}
+  .listrow button{background:var(--panel-2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:0 14px;font-size:.85rem;cursor:pointer}
+  .tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+  .tags .t{font-family:var(--mono);font-size:.75rem;background:var(--ink);border:1px solid var(--line);border-radius:6px;padding:4px 8px;display:inline-flex;gap:6px;align-items:center}
+  .tags .t button{background:none;border:none;color:var(--muted);cursor:pointer;font-size:.85rem;line-height:1;padding:0}
+  .tags .t button:hover{color:var(--red)}
+
+  /* scan area */
+  .scanbtns{display:flex;gap:8px}
+  .big{flex:1;background:var(--green);border:none;color:#06130c;font-weight:700;font-size:1rem;border-radius:10px;padding:14px;cursor:pointer}
+  .big.stop{background:var(--red);color:#fff}
+  .big:focus-visible{outline:2px solid #fff;outline-offset:2px}
+  #reader{margin-top:12px;border-radius:10px;overflow:hidden;display:none;border:1px solid var(--line)}
+  .manual{display:flex;gap:8px;margin-top:12px}
+  .manual input{flex:1;background:var(--ink);border:1px solid var(--line);border-radius:8px;color:var(--text);padding:11px;font-size:1rem;font-family:var(--mono);letter-spacing:.05em}
+  .manual button{background:var(--panel-2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:0 16px;cursor:pointer}
+  .samples{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap}
+  .samples button{background:none;border:1px dashed var(--line);color:var(--muted);border-radius:8px;padding:6px 10px;font-size:.75rem;cursor:pointer;font-family:var(--mono)}
+  .samples button:hover{color:var(--text)}
+
+  .status{font-family:var(--mono);font-size:.78rem;color:var(--muted);margin-top:10px;min-height:1.1em}
+
+  /* ===== the receipt ===== */
+  .receipt{display:none;background:var(--paper);color:var(--paper-ink);font-family:var(--mono);border-radius:4px 4px 0 0;padding:20px 18px 26px;position:relative;box-shadow:0 8px 24px rgba(0,0,0,.45);margin-top:4px}
+  .receipt::after{content:"";position:absolute;left:0;right:0;bottom:-10px;height:10px;
+    background:linear-gradient(-45deg,transparent 70%,var(--paper) 71%) 0 0/14px 10px repeat-x,
+               linear-gradient(45deg,transparent 70%,var(--paper) 71%) 0 0/14px 10px repeat-x}
+  .receipt .shop{text-align:center;font-size:.72rem;letter-spacing:.18em;color:#7a746a}
+  .receipt .pname{text-align:center;font-size:1.02rem;font-weight:700;margin:8px 0 2px;line-height:1.3}
+  .receipt .pbrand{text-align:center;font-size:.78rem;color:#7a746a}
+  .receipt img{display:block;margin:12px auto 4px;max-height:110px;border-radius:4px}
+  .rule{border-top:1px dashed #b9b2a4;margin:14px 0}
+  .receipt .row{display:flex;justify-content:space-between;gap:10px;font-size:.82rem;padding:5px 0;align-items:baseline}
+  .receipt .row .k{color:#57503f}
+  .receipt .row .v{text-align:right;font-weight:700}
+  .v.pass{color:var(--green)} .v.fail{color:var(--red)} .v.warn{color:#b06f0a}
+  .why{font-size:.74rem;color:#7a746a;text-align:right;max-width:60%}
+  .stampwrap{display:flex;justify-content:center;margin:16px 0 4px}
+  .stamp{font-size:1.7rem;font-weight:800;letter-spacing:.14em;padding:8px 22px;border:4px double currentColor;border-radius:8px;transform:rotate(-6deg);text-transform:uppercase}
+  .stamp.avoid{color:var(--red)} .stamp.clear{color:var(--green)} .stamp.check{color:#b06f0a}
+  .receipt .foot{text-align:center;font-size:.68rem;color:#a39b8b;margin-top:12px;line-height:1.5}
+
+  .err{display:none;background:#331a1c;border:1px solid var(--red);border-radius:10px;padding:12px;font-size:.85rem;line-height:1.5;margin-top:4px}
+  @media (prefers-reduced-motion:no-preference){
+    .receipt{animation:slide .35s ease-out}
+    @keyframes slide{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>SHELF<span>CHECK</span></h1>
+  <div class="tag">prototype · no AI · open data</div>
+</header>
+
+<section class="card" aria-label="Your filters">
+  <h2>My checks</h2>
+  <div class="chips" id="chips">
+    <button class="chip" data-f="palm" aria-pressed="true">Avoid palm oil</button>
+    <button class="chip" data-f="veggie" aria-pressed="true">Is it vegetarian?</button>
+    <button class="chip" data-f="vegan" aria-pressed="false">Is it vegan?</button>
+    <button class="chip" data-f="origin" aria-pressed="false">Avoid countries ↓</button>
+    <button class="chip" data-f="brands" aria-pressed="false">Blocked brands ↓</button>
+  </div>
+
+  <div id="originBox">
+    <div class="listrow">
+      <input id="countryIn" placeholder="Type a country, then Add" aria-label="Add country">
+      <button id="countryAdd">Add</button>
+    </div>
+    <div class="tags" id="countryTags"></div>
+  </div>
+
+  <div id="brandBox" style="display:none">
+    <div class="listrow">
+      <input id="brandIn" placeholder="Add a brand to block (e.g. Nestlé)" aria-label="Add brand">
+      <button id="brandAdd">Add</button>
+    </div>
+    <div class="tags" id="brandTags"></div>
+  </div>
+
+  <p class="hint">In the full app, brand and campaign lists are crowdsourced with citations and voting. In this prototype they're personal and saved on your device.</p>
+</section>
+
+<section class="card" aria-label="Scan">
+  <h2>Scan a barcode</h2>
+  <div class="scanbtns"><button class="big" id="scanBtn">📷 Start camera scan</button></div>
+  <div id="reader"></div>
+  <div class="manual">
+    <input id="codeIn" inputmode="numeric" placeholder="…or type the barcode" aria-label="Barcode number">
+    <button id="lookupBtn">Check</button>
+  </div>
+  <div class="samples">
+    <span style="font-size:.7rem;color:var(--muted);align-self:center">try:</span>
+    <button data-code="3017624010701">Nutella</button>
+    <button data-code="5449000000996">Coca-Cola</button>
+    <button data-code="8712100849084">Ben &amp; Jerry's</button>
+  </div>
+  <div class="status" id="status"></div>
+</section>
+
+<div class="err" id="err"></div>
+
+<article class="receipt" id="receipt" aria-live="polite">
+  <div class="shop">SHELFCHECK ·  PRODUCT REPORT</div>
+  <div class="pname" id="rName"></div>
+  <div class="pbrand" id="rBrand"></div>
+  <img id="rImg" alt="" style="display:none">
+  <div class="rule"></div>
+  <div id="rRows"></div>
+  <div class="rule"></div>
+  <div class="stampwrap"><div class="stamp" id="rStamp"></div></div>
+  <div class="foot" id="rFoot">data: Open Food Facts (crowdsourced) · verdicts run on your device — no AI, no tokens</div>
+</article>
+
+<script>
+(function(){
+  "use strict";
+  const $=id=>document.getElementById(id);
+  let state={filters:{palm:true,veggie:true,vegan:false,origin:false,brands:false},countries:[],brands:[]};
+  let scanner=null, scanning=false;
+
+  /* ---------- persistence ---------- */
+  async function save(){try{await window.storage.set("shelfcheck-v2",JSON.stringify(state));}catch(e){}}
+  async function load(){
+    try{const r=await window.storage.get("shelfcheck-v2");if(r&&r.value){const s=JSON.parse(r.value);if(s&&s.filters)state=s;}}catch(e){}
+    render();
+  }
+
+  /* ---------- UI render ---------- */
+  function render(){
+    document.querySelectorAll(".chip").forEach(c=>{c.setAttribute("aria-pressed",String(!!state.filters[c.dataset.f]));});
+    $("originBox").style.display=state.filters.origin?"block":"none";
+    $("brandBox").style.display=state.filters.brands?"block":"none";
+    tagList("countryTags",state.countries,"countries");
+    tagList("brandTags",state.brands,"brands");
+  }
+  function tagList(el,arr,key){
+    const box=$(el);box.innerHTML="";
+    arr.forEach((v,i)=>{
+      const t=document.createElement("span");t.className="t";t.textContent=v;
+      const x=document.createElement("button");x.textContent="✕";x.setAttribute("aria-label","Remove "+v);
+      x.onclick=()=>{state[key].splice(i,1);save();render();};
+      t.appendChild(x);box.appendChild(t);
+    });
+  }
+  document.querySelectorAll(".chip").forEach(c=>c.addEventListener("click",()=>{
+    state.filters[c.dataset.f]=!state.filters[c.dataset.f];save();render();
+  }));
+  function addTo(inputId,key){
+    const v=$(inputId).value.trim().toLowerCase();
+    if(v&&!state[key].includes(v)){state[key].push(v);$(inputId).value="";save();render();}
+  }
+  $("countryAdd").onclick=()=>addTo("countryIn","countries");
+  $("brandAdd").onclick=()=>addTo("brandIn","brands");
+  $("countryIn").addEventListener("keydown",e=>{if(e.key==="Enter")addTo("countryIn","countries");});
+  $("brandIn").addEventListener("keydown",e=>{if(e.key==="Enter")addTo("brandIn","brands");});
+
+  /* ---------- scanning ---------- */
+  $("scanBtn").addEventListener("click",async()=>{
+    if(scanning){await stopScan();return;}
+    try{
+      $("reader").style.display="block";
+      scanner=new Html5Qrcode("reader",{formatsToSupport:[
+        Html5QrcodeSupportedFormats.EAN_13,Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.UPC_A,Html5QrcodeSupportedFormats.UPC_E]});
+      await scanner.start({facingMode:"environment"},{fps:10,qrbox:{width:250,height:140}},
+        async code=>{await stopScan();$("codeIn").value=code;lookup(code);},
+        ()=>{});
+      scanning=true;$("scanBtn").textContent="⏹ Stop camera";$("scanBtn").classList.add("stop");
+      setStatus("Point the camera at a barcode…");
+    }catch(e){
+      $("reader").style.display="none";
+      showErr("Camera couldn't start here (embedded previews often block it). No problem — type the barcode number instead, or tap a sample product.");
+    }
+  });
+  async function stopScan(){
+    try{if(scanner)await scanner.stop();}catch(e){}
+    scanning=false;$("reader").style.display="none";
+    $("scanBtn").textContent="📷 Start camera scan";$("scanBtn").classList.remove("stop");
+  }
+  $("lookupBtn").addEventListener("click",()=>{const c=$("codeIn").value.replace(/\D/g,"");if(c)lookup(c);});
+  $("codeIn").addEventListener("keydown",e=>{if(e.key==="Enter")$("lookupBtn").click();});
+  document.querySelectorAll(".samples button").forEach(b=>b.addEventListener("click",()=>{$("codeIn").value=b.dataset.code;lookup(b.dataset.code);}));
+
+  /* ---------- lookup + verdict ---------- */
+  function setStatus(t){$("status").textContent=t;}
+  function showErr(t){$("err").textContent=t;$("err").style.display="block";}
+  function hideErr(){$("err").style.display="none";}
+
+  function validCheckDigit(code){
+    if(![8,12,13].includes(code.length))return true; // unusual length: let the database decide
+    const d=code.split("").map(Number),chk=d.pop();
+    let sum=0;
+    d.reverse().forEach((n,i)=>{sum+=n*(i%2===0?3:1);});
+    return (10-(sum%10))%10===chk;
+  }
+
+  async function lookup(code){
+    hideErr();$("receipt").style.display="none";
+    if(!validCheckDigit(code)){
+      setStatus("");
+      showErr("That number fails the barcode check-digit test, so one digit is probably mistyped or misread. Double-check the digits printed under the barcode and try again.");
+      return;
+    }
+    setStatus("Looking up "+code+" on Open Food Facts…");
+    try{
+      const fields="product_name,brands,brands_tags,image_front_small_url,ingredients_analysis_tags,origins_tags,origins,manufacturing_places,countries_tags,ingredients_text";
+      const res=await fetch("https://world.openfoodfacts.org/api/v2/product/"+code+".json?fields="+fields);
+      const data=await res.json();
+      if(!data||data.status!==1||!data.product){
+        setStatus("");
+        showErr("Barcode "+code+" isn't in Open Food Facts yet. In the full app this is the crowdsourcing moment: you'd photograph the product and submit it for everyone.");
+        return;
+      }
+      setStatus("");
+      verdict(code,data.product);
+    }catch(e){
+      setStatus("");
+      showErr("Couldn't reach Open Food Facts. Check your connection and try again.");
+    }
+  }
+
+  function verdict(code,p){
+    const tags=p.ingredients_analysis_tags||[];
+    const rows=[];let fails=0,warns=0;
+
+    function row(k,status,v,why){
+      rows.push({k,status,v,why});
+      if(status==="fail")fails++;if(status==="warn")warns++;
+    }
+
+    if(state.filters.palm){
+      if(tags.includes("en:palm-oil"))row("Palm oil","fail","CONTAINS");
+      else if(tags.includes("en:palm-oil-free"))row("Palm oil","pass","FREE");
+      else if(tags.includes("en:may-contain-palm-oil"))row("Palm oil","warn","MAYBE","ambiguous ingredient");
+      else row("Palm oil","warn","UNKNOWN","ingredients not fully analysed");
+    }
+    if(state.filters.veggie){
+      if(tags.includes("en:vegetarian"))row("Vegetarian","pass","YES");
+      else if(tags.includes("en:non-vegetarian"))row("Vegetarian","fail","NO","contains meat or fish");
+      else if(tags.includes("en:maybe-vegetarian"))row("Vegetarian","warn","MAYBE","ambiguous ingredient");
+      else row("Vegetarian","warn","UNKNOWN","ingredients not fully analysed");
+    }
+    if(state.filters.vegan){
+      if(tags.includes("en:vegan"))row("Vegan","pass","YES");
+      else if(tags.includes("en:non-vegan"))row("Vegan","fail","NO","contains animal products");
+      else if(tags.includes("en:maybe-vegan"))row("Vegan","warn","MAYBE","ambiguous ingredient");
+      else row("Vegan","warn","UNKNOWN","ingredients not fully analysed");
+    }
+    if(state.filters.origin&&state.countries.length){
+      const hay=[(p.origins||""),(p.manufacturing_places||""),(p.origins_tags||[]).join(" ")].join(" ").toLowerCase();
+      const hit=state.countries.find(c=>hay.includes(c));
+      if(hit)row("Origin","fail","MATCH: "+hit.toUpperCase());
+      else if(hay.trim())row("Origin","pass","NO MATCH",hay.slice(0,60));
+      else row("Origin","warn","NOT DECLARED","origin data missing — a crowdsourcing gap");
+    }
+    if(state.filters.brands&&state.brands.length){
+      const bhay=((p.brands||"")+" "+(p.brands_tags||[]).join(" ")).toLowerCase();
+      const bhit=state.brands.find(b=>bhay.includes(b));
+      if(bhit)row("Blocked brand","fail","MATCH: "+bhit.toUpperCase());
+      else row("Blocked brand","pass","NO MATCH");
+    }
+    if(!rows.length)row("Filters","warn","NONE ACTIVE","turn on a filter above");
+
+    /* paint receipt */
+    $("rName").textContent=p.product_name||"Unnamed product";
+    $("rBrand").textContent=(p.brands?p.brands+" · ":"")+code;
+    const img=$("rImg");
+    if(p.image_front_small_url){img.src=p.image_front_small_url;img.style.display="block";}else{img.style.display="none";}
+    const box=$("rRows");box.innerHTML="";
+    rows.forEach(r=>{
+      const d=document.createElement("div");d.className="row";
+      d.innerHTML='<span class="k">'+r.k+'</span><span><span class="v '+r.status+'">'+r.v+'</span>'+
+        (r.why?'<div class="why">'+r.why+'</div>':"")+'</span>';
+      box.appendChild(d);
+    });
+    const s=$("rStamp");
+    if(fails){s.textContent="Avoid";s.className="stamp avoid";}
+    else if(warns){s.textContent="Check";s.className="stamp check";}
+    else{s.textContent="Clear";s.className="stamp clear";}
+    $("receipt").style.display="block";
+    $("receipt").scrollIntoView({behavior:"smooth",block:"start"});
+  }
+
+  load();
+})();
+</script>
+</body>
+</html>
