@@ -549,15 +549,22 @@
       const cats=(lastProduct.categories_tags||[]).filter(c=>c.startsWith("en:")).reverse().slice(0,3);
       cats.forEach(c=>attempts.push([{categories_tags:c},c.replace("en:","").replace(/-/g," ")]));
 
-      const seen=new Set(),results=[];let usedLabel=null;
+      const seen=new Set(),results=[];let usedLabel=null,reached=false,lastFail=null;
       for(const [params,label] of attempts){
         let found=[];
-        try{found=await searchOFF(params,kw);}catch(e){continue;}
+        try{found=await searchOFF(params,kw);reached=true;}
+        catch(e){lastFail=e;continue;}
         found.forEach(c=>{if(!seen.has(c.code)){seen.add(c.code);results.push(c);}});
         if(results.length&&!usedLabel)usedLabel=label;
         if(results.length>=4)break;
       }
 
+      /* Distinguish "searched fine, found nothing" from "never got an answer" —
+         they need completely different messages. */
+      if(!reached){
+        showSearchDown(lastFail,kw,slug);
+        btn.disabled=false;btn.textContent="Try again";return;
+      }
       if(!results.length){
         $("altNote").textContent=kw
           ? 'Nothing matching "'+kw+'" passes all your checks yet. Try a broader word, or clear the box to search this product\'s whole category.'
@@ -570,9 +577,27 @@
         ". These pass every check you've turned on — but stock varies by shop, so treat them as things to look for.";
       btn.disabled=false;btn.textContent="Search again";
     }catch(e){
-      $("altNote").textContent="Couldn't reach Open Food Facts. Try again in a moment.";
-      btn.disabled=false;btn.textContent="Search";
+      showSearchDown(e,kw,slug);
+      btn.disabled=false;btn.textContent="Try again";
     }
+  }
+
+  /* Open Food Facts' search endpoint currently rejects browser requests (their
+     known CORS/503 issue). Barcode lookups are unaffected. Say so plainly and
+     hand the user a link that does work — their own site browses fine. */
+  function showSearchDown(err,kw,slug){
+    const why=(err&&err.kind==="http")
+      ? "Open Food Facts' search service returned an error ("+err.status+")."
+      : "Open Food Facts' search service is refusing requests from web apps right now — a known issue on their side, not yours.";
+    $("altNote").textContent=why+" Scanning still works normally. In the meantime you can browse their site directly:";
+    const a=document.createElement("a");
+    a.className="offbtn";a.target="_blank";a.rel="noopener noreferrer";
+    a.style.marginTop="10px";
+    a.href=slug
+      ? "https://world.openfoodfacts.org/facets/categories/"+encodeURIComponent(slug)
+      : "https://world.openfoodfacts.org/";
+    a.textContent=kw?"Browse "+kw+" on Open Food Facts →":"Open Food Facts →";
+    $("altList").appendChild(a);
   }
   $("altBtn").addEventListener("click",runAltSearch);
   $("altKey").addEventListener("keydown",e=>{if(e.key==="Enter")runAltSearch();});
@@ -583,8 +608,13 @@
     params.set("page_size","100");
     params.set("sort_by","unique_scans_n");
     if(state.saleCountry)params.set("countries_tags_en",state.saleCountry);
-    const res=await fetch("https://world.openfoodfacts.org/api/v2/search?"+params.toString());
-    if(!res.ok)throw new Error("search failed");
+    let res;
+    try{
+      res=await fetch("https://world.openfoodfacts.org/api/v2/search?"+params.toString());
+    }catch(netErr){
+      const e=new Error("blocked");e.kind="blocked";throw e;   /* CORS or offline */
+    }
+    if(!res.ok){const e=new Error("http");e.kind="http";e.status=res.status;throw e;}
     const data=await res.json();
     const words=norm(kw).split(/\s+/).filter(Boolean);
     const out=[];
