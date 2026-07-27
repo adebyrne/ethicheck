@@ -145,9 +145,7 @@
   </div>
   <div class="samples">
     <span style="font-size:.7rem;color:var(--muted);align-self:center">try:</span>
-    <button data-code="3017624010701">Nutella</button>
-    <button data-code="5449000000996">Coca-Cola</button>
-    <button data-code="8712100849084">Ben &amp; Jerry's</button>
+    <button data-code="7613034899149">Nestlé KitKat</button>
   </div>
   <div class="status" id="status"></div>
 </section>
@@ -301,6 +299,9 @@
   }
 
 
+  /* strip accents so "nestle" matches "Nestlé", "espana" matches "España" */
+  function norm(s){return (s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");}
+
   function validCheckDigit(code){
     if(![8,12,13].includes(code.length))return true; // unusual length: let the database decide
     const d=code.split("").map(Number),chk=d.pop();
@@ -370,13 +371,13 @@
     if(state.filters.origin){
       const ov=state.overrides[code];
       if(ov&&ov.origin){
-        const oh=ov.origin.toLowerCase();
-        const ohit=state.countries.find(c=>oh.includes(c));
+        const oh=norm(ov.origin);
+        const ohit=state.countries.find(c=>oh.includes(norm(c)));
         if(ohit)row("Origin (your check)","fail","MATCH: "+ohit.toUpperCase(),"you recorded: "+ov.origin);
         else row("Origin (your check)","pass","NO MATCH","you recorded: "+ov.origin);
       }else if(known){
-        const hay=[(p.origins||""),(p.manufacturing_places||""),(p.origins_tags||[]).join(" ")].join(" ").toLowerCase();
-        const hit=state.countries.find(c=>hay.includes(c));
+        const hay=norm([(p.origins||""),(p.manufacturing_places||""),(p.origins_tags||[]).join(" ")].join(" "));
+        const hit=state.countries.find(c=>hay.includes(norm(c)));
         if(hit)row("Declared origin","fail","MATCH: "+hit.toUpperCase());
         else if(hay.trim())row("Declared origin","pass","NO MATCH",hay.slice(0,60));
         else row("Declared origin","warn","NOT DECLARED","origin data missing — read the label and record it below");
@@ -386,7 +387,7 @@
 
       const reg=gs1Registry(code);
       if(reg){
-        const rhit=state.countries.find(c=>reg.toLowerCase().includes(c));
+        const rhit=state.countries.find(c=>norm(reg).includes(norm(c)));
         if(rhit)row("Barcode registry","fail","GS1 "+reg.toUpperCase(),"on your avoid list — but this shows where the barcode was registered, not where it was made");
         else row("Barcode registry","pass","GS1 "+reg,"where the barcode was registered");
       }else{
@@ -394,10 +395,13 @@
       }
     }
     if(state.filters.brands&&state.brands.length){
-      const bhay=((p.brands||"")+" "+(p.brands_tags||[]).join(" ")).toLowerCase();
-      const bhit=state.brands.find(b=>bhay.includes(b));
-      if(bhit)row("Blocked brand","fail","MATCH: "+bhit.toUpperCase());
-      else row("Blocked brand","pass","NO MATCH");
+      if(!known)row("Blocked brand","warn","NO DATA","product not in the database yet");
+      else{
+        const bhay=norm((p.brands||"")+" "+(p.brands_tags||[]).join(" "));
+        const bhit=state.brands.find(b=>bhay.includes(norm(b)));
+        if(bhit)row("Blocked brand","fail","MATCH: "+bhit.toUpperCase(),p.brands||"");
+        else row("Blocked brand","pass","NO MATCH",p.brands||"");
+      }
     }
     if(!rows.length)row("Filters","warn","NONE ACTIVE","turn on a filter above");
 
