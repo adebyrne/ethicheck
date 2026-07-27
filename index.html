@@ -184,7 +184,11 @@
   <section class="card altcard" id="altCard">
     <h2>Better matches</h2>
     <p class="hint" style="margin-top:0" id="altIntro"></p>
-    <button class="altbtn" id="altBtn">Find a better match</button>
+    <div class="listrow" style="margin-top:0">
+      <input id="altKey" placeholder="Keyword, e.g. custard" aria-label="Keyword to match similar products">
+      <button id="altBtn">Search</button>
+    </div>
+    <p class="hint" style="margin-top:6px">A keyword keeps results to the same kind of thing. Without one, a tin of custard can return tinned tomatoes, because they share a category.</p>
     <div id="altList"></div>
     <p class="hint" id="altNote"></p>
   </section>
@@ -501,56 +505,95 @@
     /* alternatives offer */
     const failed=rows.filter(r=>r.status==="fail").map(r=>r.k.toLowerCase());
     $("altList").innerHTML="";$("altNote").textContent="";
-    if(fails&&known&&(p.categories_tags||[]).length){
-      $("altIntro").textContent="This one is flagged for: "+failed.join(", ")+". Same kind of product, without that.";
-      $("altBtn").style.display="block";$("altBtn").disabled=false;
-      $("altBtn").textContent="Find a better match";
+    if(fails&&known){
+      $("altIntro").textContent="Flagged for: "+failed.join(", ")+". Search for the same kind of product without that.";
+      $("altBtn").disabled=false;$("altBtn").textContent="Search";
+      $("altKey").value=guessKeyword(p);
       $("altCard").style.display="block";
-    }else if(fails&&known){
-      $("altIntro").textContent="No category recorded for this product, so there's nothing to compare it against. Adding a category on Open Food Facts would fix that.";
-      $("altBtn").style.display="none";$("altCard").style.display="block";
     }else $("altCard").style.display="none";
   }
 
   /* ---------- alternatives ---------- */
-  $("altBtn").addEventListener("click",async()=>{
+  /* Suggest a starting keyword from the product's own name/categories, so the
+     box is rarely empty. Drops brand-ish first words and generic packaging words. */
+  const STOPWORDS=["tin","tinned","canned","can","jar","pack","bottle","box","original",
+    "the","and","with","of","new","large","small","family","value"];
+  function guessKeyword(p){
+    const cats=(p.categories_tags||[]).filter(c=>c.startsWith("en:"));
+    if(cats.length){
+      const leaf=cats[cats.length-1].replace("en:","").replace(/-/g," ");
+      const w=leaf.split(" ").filter(x=>!STOPWORDS.includes(x));
+      if(w.length)return w[w.length-1].replace(/s$/,"");
+    }
+    const name=norm(p.product_name||"").replace(/[^a-z0-9 ]/g," ").split(/\s+/)
+      .filter(w=>w.length>3&&!STOPWORDS.includes(w));
+    return name.length?name[name.length-1].replace(/s$/,""):"";
+  }
+
+  async function runAltSearch(){
     if(!lastProduct)return;
     const btn=$("altBtn");btn.disabled=true;btn.textContent="Searching…";
-    $("altList").innerHTML="";$("altNote").textContent="";
+    $("altList").innerHTML="";$("altNote").textContent="Searching…";
+    const kw=$("altKey").value.trim();
+    const slug=norm(kw).replace(/\s+/g,"-");
     try{
-      const cats=(lastProduct.categories_tags||[]).filter(c=>c.startsWith("en:"));
-      let results=[],usedCat=null;
-      for(let i=cats.length-1;i>=0&&i>=cats.length-3;i--){
-        const found=await searchCategory(cats[i]);
-        if(found.length){results=found;usedCat=cats[i];break;}
+      /* Try the most targeted query first, widen only if it comes up short.
+         Keyword-as-category usually nails it; the product's own categories are
+         the fallback, filtered by the keyword so unrelated tins drop out. */
+      const attempts=[];
+      if(kw){
+        attempts.push([{categories_tags_en:kw},"category: "+kw]);
+        attempts.push([{categories_tags:"en:"+slug+"s"},"category: "+slug+"s"]);
+        attempts.push([{categories_tags:"en:"+slug},"category: "+slug]);
       }
+      const cats=(lastProduct.categories_tags||[]).filter(c=>c.startsWith("en:")).reverse().slice(0,3);
+      cats.forEach(c=>attempts.push([{categories_tags:c},c.replace("en:","").replace(/-/g," ")]));
+
+      const seen=new Set(),results=[];let usedLabel=null;
+      for(const [params,label] of attempts){
+        let found=[];
+        try{found=await searchOFF(params,kw);}catch(e){continue;}
+        found.forEach(c=>{if(!seen.has(c.code)){seen.add(c.code);results.push(c);}});
+        if(results.length&&!usedLabel)usedLabel=label;
+        if(results.length>=4)break;
+      }
+
       if(!results.length){
-        $("altNote").textContent="Nothing in the database matches all your checks in this category yet. That's a gap worth filling — if you know a product that fits, adding it to Open Food Facts puts it in front of everyone.";
-        btn.textContent="No matches found";return;
+        $("altNote").textContent=kw
+          ? 'Nothing matching "'+kw+'" passes all your checks yet. Try a broader word, or clear the box to search this product\'s whole category.'
+          : "Nothing in this category passes all your checks yet. That's a gap worth filling — adding a product you know to Open Food Facts puts it in front of everyone.";
+        btn.disabled=false;btn.textContent="Search again";return;
       }
-      results.slice(0,4).forEach(r=>$("altList").appendChild(altRow(r)));
-      $("altNote").textContent="From "+usedCat.replace("en:","").replace(/-/g," ")+
+      results.slice(0,5).forEach(r=>$("altList").appendChild(altRow(r)));
+      $("altNote").textContent="Matched on "+usedLabel+
         (state.saleCountry?", sold in "+state.saleCountry:", worldwide")+
         ". These pass every check you've turned on — but stock varies by shop, so treat them as things to look for.";
-      btn.style.display="none";
+      btn.disabled=false;btn.textContent="Search again";
     }catch(e){
       $("altNote").textContent="Couldn't reach Open Food Facts. Try again in a moment.";
-      btn.disabled=false;btn.textContent="Find a better match";
+      btn.disabled=false;btn.textContent="Search";
     }
-  });
+  }
+  $("altBtn").addEventListener("click",runAltSearch);
+  $("altKey").addEventListener("keydown",e=>{if(e.key==="Enter")runAltSearch();});
 
-  async function searchCategory(cat){
-    const params=new URLSearchParams();
-    params.set("categories_tags",cat);
+  async function searchOFF(extra,kw){
+    const params=new URLSearchParams(extra);
     params.set("fields","code,product_name,brands,brands_tags,image_front_small_url,ingredients_analysis_tags,labels_tags,origins,origins_tags,manufacturing_places");
-    params.set("page_size","50");
+    params.set("page_size","100");
     params.set("sort_by","unique_scans_n");
     if(state.saleCountry)params.set("countries_tags_en",state.saleCountry);
     const res=await fetch("https://world.openfoodfacts.org/api/v2/search?"+params.toString());
+    if(!res.ok)throw new Error("search failed");
     const data=await res.json();
+    const words=norm(kw).split(/\s+/).filter(Boolean);
     const out=[];
     (data.products||[]).forEach(c=>{
       if(!c.code||c.code===lastCode||!c.product_name)return;
+      if(words.length){
+        const hay=norm(c.product_name+" "+(c.brands||""));
+        if(!words.every(w=>hay.includes(w)))return;
+      }
       const {fails,warns}=evaluate(c.code,c);
       if(fails===0&&warns===0)out.push(c);
     });
