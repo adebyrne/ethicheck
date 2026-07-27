@@ -323,7 +323,8 @@
       const data=await res.json();
       if(!data||data.status!==1||!data.product){
         setStatus("");
-        showErr("Barcode "+code+" isn't in Open Food Facts yet. This is the crowdsourcing moment — add it below and every user of the database gets it.");
+        showErr("Barcode "+code+" isn't in Open Food Facts yet, so ingredient checks are unavailable. The barcode registry below still works — it's read from the number itself.");
+        verdict(code,null);
         showFixPanel(code,true);
         return;
       }
@@ -336,6 +337,7 @@
   }
 
   function verdict(code,p){
+    const known=!!p; p=p||{};
     const tags=p.ingredients_analysis_tags||[];
     const rows=[];let fails=0,warns=0;
 
@@ -345,43 +347,50 @@
     }
 
     if(state.filters.palm){
-      if(tags.includes("en:palm-oil"))row("Palm oil","fail","CONTAINS");
+      if(!known)row("Palm oil","warn","NO DATA","product not in the database yet");
+      else if(tags.includes("en:palm-oil"))row("Palm oil","fail","CONTAINS");
       else if(tags.includes("en:palm-oil-free"))row("Palm oil","pass","FREE");
       else if(tags.includes("en:may-contain-palm-oil"))row("Palm oil","warn","MAYBE","ambiguous ingredient");
       else row("Palm oil","warn","UNKNOWN","ingredients not fully analysed");
     }
     if(state.filters.veggie){
-      if(tags.includes("en:vegetarian"))row("Vegetarian","pass","YES");
+      if(!known)row("Vegetarian","warn","NO DATA","product not in the database yet");
+      else if(tags.includes("en:vegetarian"))row("Vegetarian","pass","YES");
       else if(tags.includes("en:non-vegetarian"))row("Vegetarian","fail","NO","contains meat or fish");
       else if(tags.includes("en:maybe-vegetarian"))row("Vegetarian","warn","MAYBE","ambiguous ingredient");
       else row("Vegetarian","warn","UNKNOWN","ingredients not fully analysed");
     }
     if(state.filters.vegan){
-      if(tags.includes("en:vegan"))row("Vegan","pass","YES");
+      if(!known)row("Vegan","warn","NO DATA","product not in the database yet");
+      else if(tags.includes("en:vegan"))row("Vegan","pass","YES");
       else if(tags.includes("en:non-vegan"))row("Vegan","fail","NO","contains animal products");
       else if(tags.includes("en:maybe-vegan"))row("Vegan","warn","MAYBE","ambiguous ingredient");
       else row("Vegan","warn","UNKNOWN","ingredients not fully analysed");
     }
-    if(state.filters.origin&&state.countries.length){
+    if(state.filters.origin){
       const ov=state.overrides[code];
       if(ov&&ov.origin){
         const oh=ov.origin.toLowerCase();
         const ohit=state.countries.find(c=>oh.includes(c));
         if(ohit)row("Origin (your check)","fail","MATCH: "+ohit.toUpperCase(),"you recorded: "+ov.origin);
         else row("Origin (your check)","pass","NO MATCH","you recorded: "+ov.origin);
-      }else{
+      }else if(known){
         const hay=[(p.origins||""),(p.manufacturing_places||""),(p.origins_tags||[]).join(" ")].join(" ").toLowerCase();
         const hit=state.countries.find(c=>hay.includes(c));
         if(hit)row("Declared origin","fail","MATCH: "+hit.toUpperCase());
         else if(hay.trim())row("Declared origin","pass","NO MATCH",hay.slice(0,60));
         else row("Declared origin","warn","NOT DECLARED","origin data missing — read the label and record it below");
+      }else{
+        row("Declared origin","warn","NO DATA","read the label and record it below");
       }
 
       const reg=gs1Registry(code);
       if(reg){
         const rhit=state.countries.find(c=>reg.toLowerCase().includes(c));
-        if(rhit)row("Barcode registry","warn","GS1 "+reg.toUpperCase(),"company registered there — not proof of where it was made");
-        else row("Barcode registry","pass","GS1 "+reg,"where the barcode was issued");
+        if(rhit)row("Barcode registry","fail","GS1 "+reg.toUpperCase(),"on your avoid list — but this shows where the barcode was registered, not where it was made");
+        else row("Barcode registry","pass","GS1 "+reg,"where the barcode was registered");
+      }else{
+        row("Barcode registry","warn","UNRECOGNISED","prefix not in the GS1 list");
       }
     }
     if(state.filters.brands&&state.brands.length){
@@ -393,7 +402,7 @@
     if(!rows.length)row("Filters","warn","NONE ACTIVE","turn on a filter above");
 
     /* paint receipt */
-    $("rName").textContent=p.product_name||"Unnamed product";
+    $("rName").textContent=known?(p.product_name||"Unnamed product"):"Not in the database";
     $("rBrand").textContent=(p.brands?p.brands+" · ":"")+code;
     const img=$("rImg");
     if(p.image_front_small_url){img.src=p.image_front_small_url;img.style.display="block";}else{img.style.display="none";}
