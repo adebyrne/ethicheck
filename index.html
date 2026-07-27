@@ -86,6 +86,12 @@
   .receipt .foot{text-align:center;font-size:.68rem;color:#a39b8b;margin-top:12px;line-height:1.5}
 
   .err{display:none;background:#331a1c;border:1px solid var(--red);border-radius:10px;padding:12px;font-size:.85rem;line-height:1.5;margin-top:4px}
+  .fix{display:none;margin-top:18px}
+  .rule2{border-top:1px solid var(--line);margin-top:14px}
+  .offbtn{display:block;text-align:center;background:var(--panel-2);border:1px solid var(--green);color:#c9f2dd;border-radius:10px;padding:13px;text-decoration:none;font-size:.92rem;font-weight:600;margin-bottom:8px}
+  .offbtn:hover{background:#173327}
+  .offlink{display:block;text-align:center;color:var(--muted);font-size:.8rem;text-decoration:underline;margin-bottom:10px}
+  .saved{color:var(--green)}
   @media (prefers-reduced-motion:no-preference){
     .receipt{animation:slide .35s ease-out}
     @keyframes slide{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
@@ -115,6 +121,7 @@
       <button id="countryAdd">Add</button>
     </div>
     <div class="tags" id="countryTags"></div>
+    <p class="hint">Two signals are checked separately: the <b>declared origin</b> on the product record, and the <b>GS1 barcode registry</b> (first digits of the barcode). The registry shows where the company registered its barcode — companies manufacture worldwide, so it's a hint, not proof of origin.</p>
   </div>
 
   <div id="brandBox" style="display:none">
@@ -159,17 +166,33 @@
   <div class="foot" id="rFoot">data: Open Food Facts (crowdsourced) · verdicts run on your device — no AI, no tokens</div>
 </article>
 
+<section class="card fix" id="fixCard" aria-label="Correct this product">
+  <h2>You checked the label — what does it say?</h2>
+  <div class="listrow">
+    <input id="ovOrigin" placeholder="Country of origin printed on the pack" aria-label="Country of origin from the label">
+    <button id="ovSave">Save</button>
+  </div>
+  <p class="hint" id="ovState">Saved on this device only. Your own reading always beats the database and works offline.</p>
+
+  <div class="rule2"></div>
+  <h2 style="margin-top:14px">Help everyone else too</h2>
+  <p class="hint" style="margin-top:0">Photograph the packaging and add it to Open Food Facts — the open database this app reads. It takes a minute and fixes the product for every user of every app that uses their data.</p>
+  <a class="offbtn" id="offLink" href="#" target="_blank" rel="noopener noreferrer">📷 Add photos &amp; details on Open Food Facts →</a>
+  <a class="offlink" id="offView" href="#" target="_blank" rel="noopener noreferrer">View this product's page</a>
+  <p class="hint">Tip: their free mobile app (Open Food Facts, iOS &amp; Android) makes label photos much quicker than the website.</p>
+</section>
+
 <script>
 (function(){
   "use strict";
   const $=id=>document.getElementById(id);
-  let state={filters:{palm:true,veggie:true,vegan:false,origin:false,brands:false},countries:[],brands:[]};
+  let state={filters:{palm:true,veggie:true,vegan:false,origin:false,brands:false},countries:[],brands:[],overrides:{}};
   let scanner=null, scanning=false;
 
   /* ---------- persistence ---------- */
   async function save(){try{await window.storage.set("shelfcheck-v2",JSON.stringify(state));}catch(e){}}
   async function load(){
-    try{const r=await window.storage.get("shelfcheck-v2");if(r&&r.value){const s=JSON.parse(r.value);if(s&&s.filters)state=s;}}catch(e){}
+    try{const r=await window.storage.get("shelfcheck-v2");if(r&&r.value){const s=JSON.parse(r.value);if(s&&s.filters){state=s;if(!state.overrides)state.overrides={};}}}catch(e){}
     render();
   }
 
@@ -234,6 +257,50 @@
   function showErr(t){$("err").textContent=t;$("err").style.display="block";}
   function hideErr(){$("err").style.display="none";}
 
+  /* GS1 prefix ranges → issuing member organisation (NOT country of manufacture) */
+  const GS1=[[0,19,"United States"],[30,39,"United States"],[60,139,"United States"],
+    [20,29,"Internal/store use"],[40,49,"Internal/store use"],[200,299,"Internal/store use"],
+    [300,379,"France"],[380,380,"Bulgaria"],[383,383,"Slovenia"],[385,385,"Croatia"],
+    [387,387,"Bosnia and Herzegovina"],[389,389,"Montenegro"],[390,390,"Kosovo"],
+    [400,440,"Germany"],[450,459,"Japan"],[490,499,"Japan"],[460,469,"Russia"],
+    [470,470,"Kyrgyzstan"],[471,471,"Taiwan"],[474,474,"Estonia"],[475,475,"Latvia"],
+    [476,476,"Azerbaijan"],[477,477,"Lithuania"],[478,478,"Uzbekistan"],[479,479,"Sri Lanka"],
+    [480,480,"Philippines"],[481,481,"Belarus"],[482,482,"Ukraine"],[483,483,"Turkmenistan"],
+    [484,484,"Moldova"],[485,485,"Armenia"],[486,486,"Georgia"],[487,487,"Kazakhstan"],
+    [488,488,"Tajikistan"],[489,489,"Hong Kong"],[500,509,"United Kingdom"],[520,521,"Greece"],
+    [528,528,"Lebanon"],[529,529,"Cyprus"],[530,530,"Albania"],[531,531,"North Macedonia"],
+    [535,535,"Malta"],[539,539,"Ireland"],[540,549,"Belgium and Luxembourg"],[560,560,"Portugal"],
+    [569,569,"Iceland"],[570,579,"Denmark"],[590,590,"Poland"],[594,594,"Romania"],
+    [599,599,"Hungary"],[600,601,"South Africa"],[603,603,"Ghana"],[604,604,"Senegal"],
+    [608,608,"Bahrain"],[609,609,"Mauritius"],[611,611,"Morocco"],[613,613,"Algeria"],
+    [615,615,"Nigeria"],[616,616,"Kenya"],[617,617,"Cameroon"],[618,618,"Ivory Coast"],
+    [619,619,"Tunisia"],[620,620,"Tanzania"],[621,621,"Syria"],[622,622,"Egypt"],
+    [623,623,"Brunei"],[624,624,"Libya"],[625,625,"Jordan"],[626,626,"Iran"],[627,627,"Kuwait"],
+    [628,628,"Saudi Arabia"],[629,629,"United Arab Emirates"],[630,630,"Qatar"],
+    [631,631,"Namibia"],[632,632,"Rwanda"],[640,649,"Finland"],[690,699,"China"],
+    [700,709,"Norway"],[729,729,"Israel"],[730,739,"Sweden"],[740,740,"Guatemala"],
+    [741,741,"El Salvador"],[742,742,"Honduras"],[743,743,"Nicaragua"],[744,744,"Costa Rica"],
+    [745,745,"Panama"],[746,746,"Dominican Republic"],[750,750,"Mexico"],[754,755,"Canada"],
+    [759,759,"Venezuela"],[760,769,"Switzerland"],[770,771,"Colombia"],[773,773,"Uruguay"],
+    [775,775,"Peru"],[777,777,"Bolivia"],[778,779,"Argentina"],[780,780,"Chile"],
+    [784,784,"Paraguay"],[786,786,"Ecuador"],[789,790,"Brazil"],[800,839,"Italy"],
+    [840,849,"Spain"],[850,850,"Cuba"],[858,858,"Slovakia"],[859,859,"Czechia"],
+    [860,860,"Serbia"],[865,865,"Mongolia"],[867,867,"North Korea"],[868,869,"Turkey"],
+    [870,879,"Netherlands"],[880,880,"South Korea"],[883,883,"Myanmar"],[884,884,"Cambodia"],
+    [885,885,"Thailand"],[888,888,"Singapore"],[890,890,"India"],[893,893,"Vietnam"],
+    [896,896,"Pakistan"],[899,899,"Indonesia"],[900,919,"Austria"],[930,939,"Australia"],
+    [940,949,"New Zealand"],[955,955,"Malaysia"],[958,958,"Macau"],
+    [977,977,"Serial publication (ISSN)"],[978,979,"Book (ISBN)"]];
+
+  function gs1Registry(code){
+    const c=code.length===12?"0"+code:code;      // UPC-A has an implied leading zero
+    if(c.length!==13)return null;
+    const p=parseInt(c.slice(0,3),10);
+    const hit=GS1.find(r=>p>=r[0]&&p<=r[1]);
+    return hit?hit[2]:null;
+  }
+
+
   function validCheckDigit(code){
     if(![8,12,13].includes(code.length))return true; // unusual length: let the database decide
     const d=code.split("").map(Number),chk=d.pop();
@@ -243,7 +310,7 @@
   }
 
   async function lookup(code){
-    hideErr();$("receipt").style.display="none";
+    hideErr();$("receipt").style.display="none";$("fixCard").style.display="none";
     if(!validCheckDigit(code)){
       setStatus("");
       showErr("That number fails the barcode check-digit test, so one digit is probably mistyped or misread. Double-check the digits printed under the barcode and try again.");
@@ -256,7 +323,8 @@
       const data=await res.json();
       if(!data||data.status!==1||!data.product){
         setStatus("");
-        showErr("Barcode "+code+" isn't in Open Food Facts yet. In the full app this is the crowdsourcing moment: you'd photograph the product and submit it for everyone.");
+        showErr("Barcode "+code+" isn't in Open Food Facts yet. This is the crowdsourcing moment — add it below and every user of the database gets it.");
+        showFixPanel(code,true);
         return;
       }
       setStatus("");
@@ -295,11 +363,26 @@
       else row("Vegan","warn","UNKNOWN","ingredients not fully analysed");
     }
     if(state.filters.origin&&state.countries.length){
-      const hay=[(p.origins||""),(p.manufacturing_places||""),(p.origins_tags||[]).join(" ")].join(" ").toLowerCase();
-      const hit=state.countries.find(c=>hay.includes(c));
-      if(hit)row("Origin","fail","MATCH: "+hit.toUpperCase());
-      else if(hay.trim())row("Origin","pass","NO MATCH",hay.slice(0,60));
-      else row("Origin","warn","NOT DECLARED","origin data missing — a crowdsourcing gap");
+      const ov=state.overrides[code];
+      if(ov&&ov.origin){
+        const oh=ov.origin.toLowerCase();
+        const ohit=state.countries.find(c=>oh.includes(c));
+        if(ohit)row("Origin (your check)","fail","MATCH: "+ohit.toUpperCase(),"you recorded: "+ov.origin);
+        else row("Origin (your check)","pass","NO MATCH","you recorded: "+ov.origin);
+      }else{
+        const hay=[(p.origins||""),(p.manufacturing_places||""),(p.origins_tags||[]).join(" ")].join(" ").toLowerCase();
+        const hit=state.countries.find(c=>hay.includes(c));
+        if(hit)row("Declared origin","fail","MATCH: "+hit.toUpperCase());
+        else if(hay.trim())row("Declared origin","pass","NO MATCH",hay.slice(0,60));
+        else row("Declared origin","warn","NOT DECLARED","origin data missing — read the label and record it below");
+      }
+
+      const reg=gs1Registry(code);
+      if(reg){
+        const rhit=state.countries.find(c=>reg.toLowerCase().includes(c));
+        if(rhit)row("Barcode registry","warn","GS1 "+reg.toUpperCase(),"company registered there — not proof of where it was made");
+        else row("Barcode registry","pass","GS1 "+reg,"where the barcode was issued");
+      }
     }
     if(state.filters.brands&&state.brands.length){
       const bhay=((p.brands||"")+" "+(p.brands_tags||[]).join(" ")).toLowerCase();
@@ -326,8 +409,39 @@
     else if(warns){s.textContent="Check";s.className="stamp check";}
     else{s.textContent="Clear";s.className="stamp clear";}
     $("receipt").style.display="block";
+    showFixPanel(code);
     $("receipt").scrollIntoView({behavior:"smooth",block:"start"});
   }
+
+  /* ---------- correction panel ---------- */
+  let currentCode=null;
+  function showFixPanel(code,isNew){
+    currentCode=code;
+    const ov=state.overrides[code];
+    $("ovOrigin").value=ov&&ov.origin?ov.origin:"";
+    $("ovState").innerHTML=ov&&ov.origin
+      ? '<span class="saved">✓ Saved on this device: '+ov.origin+'</span> — clear the box and save again to remove it.'
+      : "Saved on this device only. Your own reading always beats the database and works offline.";
+    $("offLink").href="https://world.openfoodfacts.org/cgi/product.pl?type="+(isNew?"add":"edit")+"&code="+code;
+    $("offLink").textContent=isNew
+      ? "📷 Add this new product to Open Food Facts →"
+      : "📷 Add photos & details on Open Food Facts →";
+    $("offView").style.display=isNew?"none":"block";
+    $("offView").href="https://world.openfoodfacts.org/product/"+code;
+    $("fixCard").style.display="block";
+  }
+  $("ovSave").addEventListener("click",async()=>{
+    if(!currentCode)return;
+    const v=$("ovOrigin").value.trim();
+    if(v)state.overrides[currentCode]={origin:v,ts:Date.now()};
+    else delete state.overrides[currentCode];
+    await save();
+    $("ovState").innerHTML=v
+      ? '<span class="saved">✓ Saved on this device: '+v+'</span> — rescan to see it applied.'
+      : "Note removed.";
+    lookup(currentCode);
+  });
+  $("ovOrigin").addEventListener("keydown",e=>{if(e.key==="Enter")$("ovSave").click();});
 
   load();
 })();
