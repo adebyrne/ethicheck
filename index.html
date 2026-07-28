@@ -217,6 +217,7 @@
       <button id="ovSave">Save</button>
     </div>
     <p class="hint" id="ovState"></p>
+    <button class="danger" id="ovClearOne" style="display:none">Clear my notes for this product</button>
     <div class="rule2"></div>
     <h2 style="margin-top:14px">Help everyone else too</h2>
     <p class="hint" style="margin-top:0">Photograph the packaging and add it to Open Food Facts — the open database this app reads. It fixes the product for every app that uses their data.</p>
@@ -816,6 +817,17 @@
     $("offView").href="https://world.openfoodfacts.org/product/"+code;
     $("fixCard").style.display="block";
   }
+  /* Which of the user's notes has the database since caught up with? Once it
+     agrees, the note is redundant and keeping it just hides the real data. */
+  function dbAgrees(){
+    const p=lastProduct;if(!p)return [];
+    const t=p.ingredients_analysis_tags||[];
+    const agreed=[];
+    if(t.includes("en:vegetarian")||labelSays(p,"vegetarian"))agreed.push("veg");
+    if(t.includes("en:vegan")||labelSays(p,"vegan"))agreed.push("vegan");
+    if(t.includes("en:palm-oil-free"))agreed.push("palmFree");
+    return agreed;
+  }
   function describeOv(){
     const ov=(currentCode&&state.overrides[currentCode])||{};
     const bits=[];
@@ -823,10 +835,23 @@
     if(ov.vegan)bits.push("vegan");
     if(ov.palmFree)bits.push("no palm oil");
     if(ov.origin)bits.push("from "+ov.origin);
-    $("ovState").innerHTML=bits.length
-      ? '<span class="saved">Saved on this device: '+bits.join(", ")+'</span> — these override the database and update the receipt above straight away.'
-      : "Anything you record here overrides the database for this product, updates the receipt immediately, and is stored on this device only.";
+    $("ovClearOne").style.display=bits.length?"block":"none";
+    if(!bits.length){
+      $("ovState").innerHTML="Anything you record here overrides the database for this product, updates the receipt immediately, and is stored on this device only. Tap a chip again to undo it.";
+      return;
+    }
+    const agreed=dbAgrees().filter(k=>ov[k]);
+    let msg='<span class="saved">Your notes: '+bits.join(", ")+'</span> — these override the database, so the receipt shows your reading rather than the record. Tap a chip again to undo.';
+    if(agreed.length)msg+=' <b>The database now agrees on '+
+      agreed.map(k=>({veg:"vegetarian",vegan:"vegan",palmFree:"palm oil"})[k]).join(" and ")+
+      ' — you can clear your note and let the record speak for itself.</b>';
+    $("ovState").innerHTML=msg;
   }
+  $("ovClearOne").addEventListener("click",async()=>{
+    if(!currentCode)return;
+    delete state.overrides[currentCode];
+    await save();paintOvChips();render();describeOv();rerun();
+  });
   $("ovSave").addEventListener("click",async()=>{
     if(!currentCode)return;
     const v=$("ovOrigin").value.trim();
