@@ -746,7 +746,21 @@
         Html5QrcodeSupportedFormats.EAN_13,Html5QrcodeSupportedFormats.EAN_8,
         Html5QrcodeSupportedFormats.UPC_A,Html5QrcodeSupportedFormats.UPC_E]});
       await scanner.start({facingMode:"environment"},{fps:10,qrbox:{width:250,height:140}},
-        async code=>{await stopScan();$("codeIn").value=code;lookup(code);},()=>{});
+        async (text,result)=>{
+          /* Tins carry a Data Matrix / QR next to the barcode and the reader will
+             happily decode it. Only accept a real product number: right length,
+             all digits, and a valid check digit. Anything else: keep scanning. */
+          const fmt=(result&&result.result&&result.result.format&&result.result.format.formatName)||"";
+          const clean=(text||"").trim();
+          const isProduct=/^\d{8}$|^\d{12}$|^\d{13}$/.test(clean)&&validCheckDigit(clean);
+          if(!isProduct){
+            setStatus(/QR|DATA_MATRIX|AZTEC|PDF/i.test(fmt)||clean.length>14
+              ? "That's the square QR code — aim at the striped barcode instead."
+              : "Not a product barcode yet — hold steady on the striped lines.");
+            return;                       /* stay live, don't stop the camera */
+          }
+          await stopScan();$("codeIn").value=clean;lookup(clean);
+        },()=>{});
       scanning=true;$("scanBtn").textContent="⏹ Stop camera";$("scanBtn").classList.add("stop");
       setStatus("Point the camera at a barcode…");
     }catch(e){
