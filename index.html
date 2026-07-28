@@ -207,6 +207,11 @@
 
   <section class="card fix" id="fixCard">
     <h2>You checked the label — what does it say?</h2>
+    <div class="chips" id="ovChips">
+      <button class="chip" data-ov="veg" aria-pressed="false">Says vegetarian</button>
+      <button class="chip" data-ov="vegan" aria-pressed="false">Says vegan</button>
+      <button class="chip" data-ov="palmFree" aria-pressed="false">No palm oil</button>
+    </div>
     <div class="listrow">
       <input id="ovOrigin" placeholder="Country of origin printed on the pack" aria-label="Country of origin from the label">
       <button id="ovSave">Save</button>
@@ -291,9 +296,23 @@
     countries:[],brands:[],overrides:{}};
   let scanner=null,scanning=false,currentCode=null,lastCode=null,lastProduct=null;
 
-  async function save(){try{await window.storage.set(KEY,JSON.stringify(state));}catch(e){}}
+  /* window.storage exists only inside the Claude artifact preview. On a real
+     website (GitHub Pages, your own domain) it is undefined, so fall back to
+     localStorage — otherwise nothing persists between visits. */
+  const store={
+    async get(k){
+      if(window.storage&&window.storage.get){try{return await window.storage.get(k);}catch(e){return null;}}
+      try{const v=localStorage.getItem(k);return v?{key:k,value:v}:null;}catch(e){return null;}
+    },
+    async set(k,v){
+      if(window.storage&&window.storage.set){try{return await window.storage.set(k,v);}catch(e){}}
+      try{localStorage.setItem(k,v);}catch(e){}
+      return null;
+    }
+  };
+  async function save(){try{await store.set(KEY,JSON.stringify(state));}catch(e){}}
   async function load(){
-    try{const r=await window.storage.get(KEY);
+    try{const r=await store.get(KEY);
       if(r&&r.value){const s=JSON.parse(r.value);
         if(s&&s.filters){state=Object.assign(state,s);if(!state.overrides)state.overrides={};}}
     }catch(e){}
@@ -327,7 +346,7 @@
 
   /* ---------- settings render ---------- */
   function render(){
-    document.querySelectorAll(".chip").forEach(c=>c.setAttribute("aria-pressed",String(!!state.filters[c.dataset.f])));
+    document.querySelectorAll("#chips .chip").forEach(c=>c.setAttribute("aria-pressed",String(!!state.filters[c.dataset.f])));
     $("originBox").style.display=state.filters.origin?"block":"none";
     $("brandBox").style.display=state.filters.brands?"block":"none";
     tagList("countryTags",state.countries,"countries","No countries added yet.");
@@ -381,8 +400,23 @@
       t.appendChild(x);box.appendChild(t);
     });
   }
-  document.querySelectorAll(".chip").forEach(c=>c.addEventListener("click",async()=>{
+  document.querySelectorAll("#chips .chip").forEach(c=>c.addEventListener("click",async()=>{
     state.filters[c.dataset.f]=!state.filters[c.dataset.f];await save();render();rerun();}));
+
+  /* label-claim toggles inside the correction panel */
+  document.querySelectorAll("#ovChips .chip").forEach(c=>c.addEventListener("click",async()=>{
+    if(!currentCode)return;
+    const ov=state.overrides[currentCode]||{};
+    ov[c.dataset.ov]=!ov[c.dataset.ov];
+    if(!ov.origin&&!ov.veg&&!ov.vegan&&!ov.palmFree)delete state.overrides[currentCode];
+    else{ov.ts=Date.now();state.overrides[currentCode]=ov;}
+    await save();paintOvChips();render();rerun();
+  }));
+  function paintOvChips(){
+    const ov=(currentCode&&state.overrides[currentCode])||{};
+    document.querySelectorAll("#ovChips .chip").forEach(c=>
+      c.setAttribute("aria-pressed",String(!!ov[c.dataset.ov])));
+  }
   async function addTo(inputId,key){
     const v=$(inputId).value.trim();
     if(v&&!state[key].some(x=>x.toLowerCase()===v.toLowerCase())){
@@ -394,7 +428,7 @@
   $("brandIn").addEventListener("keydown",e=>{if(e.key==="Enter")addTo("brandIn","brands");});
   $("saleSave").addEventListener("click",async()=>{state.saleCountry=$("saleCountry").value.trim();await save();});
   $("clearOv").addEventListener("click",async()=>{state.overrides={};await save();render();rerun();});
-  function rerun(){if(lastCode)showVerdict(lastCode,lastProduct);}
+  function rerun(){if(lastCode){showVerdict(lastCode,lastProduct);describeOv();}}
 
   /* ---------- helpers ---------- */
   function norm(s){return (s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");}
@@ -409,6 +443,14 @@
     ["msc","MSC"],["marine-stewardship","MSC"],["asc","ASC"],
     ["rspo","RSPO palm"],["sustainable-palm","RSPO palm"],
     ["organic","Organic"],["b-corp","B Corp"]];
+  /* An on-pack certified label (Vegan Society, V-Label, EU organic...) is a
+     stronger claim than automated ingredient parsing, so check it first. */
+  function labelSays(p,kind){
+    const tags=(p.labels_tags||[]).map(norm);
+    if(kind==="vegan")return tags.some(t=>/(^|:)((eu-)?vegan|vegan-society|certified-vegan|v-label-vegan)$/.test(t)||t.endsWith(":vegan"));
+    if(kind==="vegetarian")return tags.some(t=>/vegetarian/.test(t));
+    return false;
+  }
   function certsOf(p){
     const tags=(p.labels_tags||[]).map(norm);
     const found=[];
@@ -465,22 +507,28 @@
     const rows=[];let fails=0,warns=0;
     const row=(k,status,v,why)=>{rows.push({k,status,v,why});if(status==="fail")fails++;if(status==="warn")warns++;};
 
+    const ovAll=state.overrides[code]||{};
     if(state.filters.palm){
-      if(!known)row("Palm oil","warn","NO DATA","product not in the database yet");
+      if(ovAll.palmFree)row("Palm oil","pass","FREE","you read the label");
+      else if(!known)row("Palm oil","warn","NO DATA","product not in the database yet");
       else if(tags.includes("en:palm-oil"))row("Palm oil","fail","CONTAINS");
       else if(tags.includes("en:palm-oil-free"))row("Palm oil","pass","FREE");
       else if(tags.includes("en:may-contain-palm-oil"))row("Palm oil","warn","MAYBE","an ingredient can be palm-derived");
       else row("Palm oil","warn","UNKNOWN","ingredients not fully analysed");
     }
     if(state.filters.veggie){
-      if(!known)row("Vegetarian","warn","NO DATA","product not in the database yet");
+      if(ovAll.veg)row("Vegetarian","pass","YES","you read the label");
+      else if(known&&labelSays(p,"vegetarian"))row("Vegetarian","pass","YES","certified label on pack");
+      else if(!known)row("Vegetarian","warn","NO DATA","product not in the database yet");
       else if(tags.includes("en:vegetarian"))row("Vegetarian","pass","YES");
       else if(tags.includes("en:non-vegetarian"))row("Vegetarian","fail","NO","contains meat or fish");
       else if(tags.includes("en:maybe-vegetarian"))row("Vegetarian","warn","MAYBE","ambiguous ingredient");
       else row("Vegetarian","warn","UNKNOWN","ingredients not fully analysed");
     }
     if(state.filters.vegan){
-      if(!known)row("Vegan","warn","NO DATA","product not in the database yet");
+      if(ovAll.vegan)row("Vegan","pass","YES","you read the label");
+      else if(known&&labelSays(p,"vegan"))row("Vegan","pass","YES","certified label on pack");
+      else if(!known)row("Vegan","warn","NO DATA","product not in the database yet");
       else if(tags.includes("en:vegan"))row("Vegan","pass","YES");
       else if(tags.includes("en:non-vegan"))row("Vegan","fail","NO","contains animal products");
       else if(tags.includes("en:maybe-vegan"))row("Vegan","warn","MAYBE","ambiguous ingredient");
@@ -746,22 +794,33 @@
     currentCode=code;
     const ov=state.overrides[code];
     $("ovOrigin").value=ov&&ov.origin?ov.origin:"";
-    $("ovState").innerHTML=ov&&ov.origin
-      ? '<span class="saved">Saved on this device: '+ov.origin+'</span> — clear the box and save again to remove it.'
-      : "Saved on this device only. Your own reading beats the database and works offline.";
+    paintOvChips();
+    describeOv();
     $("offLink").href="https://world.openfoodfacts.org/cgi/product.pl?type="+(isNew?"add":"edit")+"&code="+code;
     $("offLink").textContent=isNew?"📷 Add this new product to Open Food Facts →":"📷 Add photos & details on Open Food Facts →";
     $("offView").style.display=isNew?"none":"block";
     $("offView").href="https://world.openfoodfacts.org/product/"+code;
     $("fixCard").style.display="block";
   }
+  function describeOv(){
+    const ov=(currentCode&&state.overrides[currentCode])||{};
+    const bits=[];
+    if(ov.veg)bits.push("vegetarian");
+    if(ov.vegan)bits.push("vegan");
+    if(ov.palmFree)bits.push("no palm oil");
+    if(ov.origin)bits.push("from "+ov.origin);
+    $("ovState").innerHTML=bits.length
+      ? '<span class="saved">Saved on this device: '+bits.join(", ")+'</span> — these override the database and update the receipt above straight away.'
+      : "Anything you record here overrides the database for this product, updates the receipt immediately, and is stored on this device only.";
+  }
   $("ovSave").addEventListener("click",async()=>{
     if(!currentCode)return;
     const v=$("ovOrigin").value.trim();
-    if(v)state.overrides[currentCode]={origin:v,ts:Date.now()};else delete state.overrides[currentCode];
-    await save();render();
-    $("ovState").innerHTML=v?'<span class="saved">Saved: '+v+'</span>':"Note removed.";
-    rerun();
+    const ov=state.overrides[currentCode]||{};
+    if(v)ov.origin=v;else delete ov.origin;
+    if(!ov.origin&&!ov.veg&&!ov.vegan&&!ov.palmFree)delete state.overrides[currentCode];
+    else{ov.ts=Date.now();state.overrides[currentCode]=ov;}
+    await save();render();describeOv();rerun();
   });
   $("ovOrigin").addEventListener("keydown",e=>{if(e.key==="Enter")$("ovSave").click();});
 
