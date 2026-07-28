@@ -88,6 +88,18 @@
     padding:6px 10px;font-size:.75rem;cursor:pointer;font-family:var(--mono)}
   .samples button:hover{color:var(--text)}
   .status{font-family:var(--mono);font-size:.78rem;color:var(--muted);margin-top:10px;min-height:1.1em}
+  .active{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:12px;
+    border-top:1px solid var(--line);padding-top:12px}
+  .active .lbl{font-size:.68rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);
+    font-family:var(--mono);width:100%;margin-bottom:2px}
+  .active .p{font-size:.74rem;font-family:var(--mono);background:var(--chip-on-bg);
+    color:var(--chip-on-text);border:1px solid var(--green);border-radius:999px;padding:4px 10px}
+  .active .p.list{background:var(--panel-2);color:var(--text);border-color:var(--line)}
+  .active .p.warn{background:var(--panel-2);color:var(--amber);border-color:var(--amber)}
+  .active .none{font-size:.75rem;color:var(--muted);font-style:italic}
+  .active .edit{background:none;border:none;color:var(--muted);font-size:.74rem;
+    text-decoration:underline;cursor:pointer;padding:4px 2px}
+  .active .edit:hover{color:var(--text)}
 
   .receipt{display:none;background:var(--paper);color:var(--paper-ink);font-family:var(--mono);
     border-radius:4px 4px 0 0;padding:20px 18px 26px;position:relative;box-shadow:0 8px 24px var(--shadow);margin-top:4px}
@@ -164,7 +176,7 @@
       <button data-code="5010044000121">Warburtons white loaf</button>
     </div>
     <div class="status" id="status"></div>
-    <p class="hint" id="activeNote"></p>
+    <div class="active" id="activeList"></div>
   </section>
 
   <div class="err" id="err"></div>
@@ -323,8 +335,41 @@
     const n=Object.keys(state.overrides).length;
     $("ovCount").textContent=n?n+" product"+(n===1?"":"s")+" you've checked yourself. These override the database and stay on this device.":"None yet. When a scan shows missing data, record what the label says and it's saved here.";
     $("clearOv").style.display=n?"block":"none";
-    const on=Object.keys(state.filters).filter(k=>state.filters[k]).length;
-    $("activeNote").textContent=on?on+" check"+(on===1?"":"s")+" active — change them in Settings.":"No checks turned on. Open Settings to choose some.";
+    renderActive();
+  }
+
+  /* Spell out exactly what's being checked, including the actual countries and
+     brands — a count alone is useless when you're standing in a shop. */
+  function renderActive(){
+    const box=$("activeList");box.innerHTML="";
+    const lbl=document.createElement("div");lbl.className="lbl";lbl.textContent="Checking for";box.appendChild(lbl);
+    const pills=[];
+    if(state.filters.palm)pills.push(["palm oil",""]);
+    if(state.filters.veggie)pills.push(["vegetarian",""]);
+    if(state.filters.vegan)pills.push(["vegan",""]);
+    if(state.filters.origin){
+      pills.push(state.countries.length
+        ? [state.countries.join(", "),"list"]
+        : ["countries — none added","warn"]);
+    }
+    if(state.filters.brands){
+      pills.push(state.brands.length
+        ? [state.brands.join(", "),"list"]
+        : ["brands — none added","warn"]);
+    }
+    if(state.filters.certs)pills.push(["certifications",""]);
+
+    if(!pills.length){
+      const e=document.createElement("span");e.className="none";
+      e.textContent="Nothing selected — scans won't tell you much.";box.appendChild(e);
+    }else pills.forEach(([t,cls])=>{
+      const s=document.createElement("span");s.className="p"+(cls?" "+cls:"");s.textContent=t;box.appendChild(s);
+    });
+
+    const edit=document.createElement("button");edit.className="edit";
+    edit.textContent=pills.length?"change":"choose checks";
+    edit.onclick=()=>document.querySelector('[data-tab="settings"]').click();
+    box.appendChild(edit);
   }
   function tagList(el,arr,key,emptyMsg){
     const box=$(el);box.innerHTML="";
