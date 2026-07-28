@@ -69,6 +69,13 @@
   .seg button[aria-pressed="true"]{background:var(--chip-on-bg);border-color:var(--green);color:var(--chip-on-text);font-weight:600}
   .seg button:focus-visible{outline:2px solid var(--green);outline-offset:2px}
 
+  .ovitem{display:flex;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}
+  .ovitem .m{flex:1;min-width:0}
+  .ovitem .c{font-family:var(--mono);font-size:.72rem;color:var(--muted)}
+  .ovitem .d{font-size:.82rem;margin-top:2px}
+  .ovitem button{background:none;border:1px solid var(--line);color:var(--muted);border-radius:8px;
+    padding:6px 10px;font-size:.75rem;cursor:pointer;flex:none}
+  .ovitem button:hover{border-color:var(--red);color:var(--red)}
   .danger{background:none;border:1px solid var(--line);color:var(--muted);border-radius:8px;
     padding:10px;font-size:.82rem;cursor:pointer;width:100%;margin-top:10px}
   .danger:hover{border-color:var(--red);color:var(--red)}
@@ -283,6 +290,7 @@
   <section class="card">
     <h2>Your saved label notes</h2>
     <p class="hint" style="margin-top:0" id="ovCount"></p>
+    <div id="ovList"></div>
     <button class="danger" id="clearOv">Clear all saved notes</button>
   </section>
 </div>
@@ -352,14 +360,42 @@
     $("brandBox").style.display=state.filters.brands?"block":"none";
     tagList("countryTags",state.countries,"countries","No countries added yet.");
     tagList("brandTags",state.brands,"brands","No brands blocked yet.");
-    const n=Object.keys(state.overrides).length;
-    $("ovCount").textContent=n?n+" product"+(n===1?"":"s")+" you've checked yourself. These override the database and stay on this device.":"None yet. When a scan shows missing data, record what the label says and it's saved here.";
-    $("clearOv").style.display=n?"block":"none";
+    renderOvList();
     renderActive();
   }
 
   /* Spell out exactly what's being checked, including the actual countries and
      brands — a count alone is useless when you're standing in a shop. */
+  /* One row per product you've made a note on, each removable on its own. */
+  function renderOvList(){
+    const codes=Object.keys(state.overrides);
+    const box=$("ovList");box.innerHTML="";
+    $("ovCount").textContent=codes.length
+      ? codes.length+" product"+(codes.length===1?"":"s")+" you've checked yourself. These override the database and stay on this device."
+      : "None yet. When a scan shows missing data, record what the label says and it's saved here.";
+    $("clearOv").style.display=codes.length>1?"block":"none";
+    codes.sort((a,b)=>(state.overrides[b].ts||0)-(state.overrides[a].ts||0)).forEach(code=>{
+      const ov=state.overrides[code],bits=[];
+      if(ov.veg)bits.push("vegetarian");
+      if(ov.vegan)bits.push("vegan");
+      if(ov.palmFree)bits.push("no palm oil");
+      if(ov.origin)bits.push("from "+ov.origin);
+      const row=document.createElement("div");row.className="ovitem";
+      const mid=document.createElement("div");mid.className="m";
+      const c=document.createElement("div");c.className="c";c.textContent=code;
+      const d=document.createElement("div");d.className="d";d.textContent=bits.join(", ")||"—";
+      mid.appendChild(c);mid.appendChild(d);row.appendChild(mid);
+      const x=document.createElement("button");x.textContent="Remove";
+      x.setAttribute("aria-label","Remove notes for "+code);
+      x.onclick=async()=>{
+        delete state.overrides[code];await save();render();
+        if(currentCode===code)paintOvChips();
+        describeOv();rerun();
+      };
+      row.appendChild(x);box.appendChild(row);
+    });
+  }
+
   function renderActive(){
     const box=$("activeList");box.innerHTML="";
     const lbl=document.createElement("div");lbl.className="lbl";lbl.textContent="Checking for";box.appendChild(lbl);
